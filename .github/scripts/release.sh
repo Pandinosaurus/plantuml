@@ -1,13 +1,86 @@
 #!/usr/bin/env bash
 set -ex
 
-mv plantuml.jar         "plantuml-${POM_VERSION}.jar"
-mv plantuml-javadoc.jar "plantuml-${POM_VERSION}-javadoc.jar"
-mv plantuml-sources.jar "plantuml-${POM_VERSION}-sources.jar"
+echo "::group::[List JAR/ASC]"
+find . -name "*.jar"
+find . -name "*.asc"
+echo "::endgroup::"
 
-gh release create --target "${GITHUB_SHA}" "${TAG}" \
-  "plantuml-${POM_VERSION}.jar" \
-  "plantuml-${POM_VERSION}-javadoc.jar" \
-  "plantuml-${POM_VERSION}-sources.jar"
+mkdir "github_release"
+
+cp "build/libs/plantuml-${RELEASE_VERSION}.jar" "github_release/plantuml.jar"
+cp "build/libs/plantuml-${RELEASE_VERSION}.jar" "github_release/plantuml-${RELEASE_VERSION}.jar"
+cp "build/java8/plantuml.jar" "github_release/plantuml-java8-${RELEASE_VERSION}.jar"
+cp "build/libs/plantuml-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-${RELEASE_VERSION}-javadoc.jar"
+cp "build/libs/plantuml-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-${RELEASE_VERSION}-sources.jar"
+cp "build/libs/js-plantuml-${RELEASE_VERSION}.zip" "github_release/js-plantuml-${RELEASE_VERSION}.zip"
+cp "build/native-image/native-plantuml-windows-amd64-${RELEASE_VERSION}.zip" "github_release/native-plantuml-windows-amd64-${RELEASE_VERSION}.zip"
+cp "build/native-image/native-plantuml-linux-amd64-${RELEASE_VERSION}.zip" "github_release/native-plantuml-linux-amd64-${RELEASE_VERSION}.zip"
+cp "build/native-image/native-plantuml-linux-arm64-${RELEASE_VERSION}.zip" "github_release/native-plantuml-linux-arm64-${RELEASE_VERSION}.zip"
+cp "build/native-image/native-plantuml-macos-arm64-${RELEASE_VERSION}.zip" "github_release/native-plantuml-macos-arm64-${RELEASE_VERSION}.zip"
+cp "license-variants/plantuml-asl/build/libs/plantuml-asl-${RELEASE_VERSION}.jar" "github_release/plantuml-asl-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-asl/build/libs/plantuml-asl-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-asl-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-asl/build/libs/plantuml-asl-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-asl-${RELEASE_VERSION}-sources.jar"
+cp "license-variants/plantuml-bsd/build/libs/plantuml-bsd-${RELEASE_VERSION}.jar" "github_release/plantuml-bsd-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-bsd/build/libs/plantuml-bsd-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-bsd-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-bsd/build/libs/plantuml-bsd-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-bsd-${RELEASE_VERSION}-sources.jar"
+cp "license-variants/plantuml-epl/build/libs/plantuml-epl-${RELEASE_VERSION}.jar" "github_release/plantuml-epl-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-epl/build/libs/plantuml-epl-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-epl-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-epl/build/libs/plantuml-epl-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-epl-${RELEASE_VERSION}-sources.jar"
+cp "license-variants/plantuml-lgpl/build/libs/plantuml-lgpl-${RELEASE_VERSION}.jar" "github_release/plantuml-lgpl-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-lgpl/build/libs/plantuml-lgpl-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-lgpl-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-lgpl/build/libs/plantuml-lgpl-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-lgpl-${RELEASE_VERSION}-sources.jar"
+cp "license-variants/plantuml-mit/build/libs/plantuml-mit-${RELEASE_VERSION}.jar" "github_release/plantuml-mit-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-mit/build/libs/plantuml-mit-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-mit-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-mit/build/libs/plantuml-mit-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-mit-${RELEASE_VERSION}-sources.jar"
+cp "license-variants/plantuml-mit-light/build/libs/plantuml-mit-light-${RELEASE_VERSION}.jar" "github_release/plantuml-mit-light-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-mit-light/build/libs/plantuml-mit-light-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-mit-light-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-mit-light/build/libs/plantuml-mit-light-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-mit-light-${RELEASE_VERSION}-sources.jar"
+cp "license-variants/plantuml-gplv2/build/libs/plantuml-gplv2-${RELEASE_VERSION}.jar" "github_release/plantuml-gplv2-${RELEASE_VERSION}.jar"
+cp "license-variants/plantuml-gplv2/build/libs/plantuml-gplv2-${RELEASE_VERSION}-javadoc.jar" "github_release/plantuml-gplv2-${RELEASE_VERSION}-javadoc.jar"
+cp "license-variants/plantuml-gplv2/build/libs/plantuml-gplv2-${RELEASE_VERSION}-sources.jar" "github_release/plantuml-gplv2-${RELEASE_VERSION}-sources.jar"
+
+if [[ -e "build/publications/maven/module.json.asc" ]]; then
+  # signatures are optional so that forked repos can release snapshots without needing a gpg signing key
+  cp "build/libs/plantuml-${RELEASE_VERSION}.jar.asc" "github_release/plantuml.jar.asc"
+  cp "build/libs/plantuml-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-${RELEASE_VERSION}.jar.asc"
+  cp "build/libs/plantuml-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "build/libs/plantuml-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-${RELEASE_VERSION}-sources.jar.asc"
+  if [[ -e "build/libs/js-plantuml-${RELEASE_VERSION}.zip.asc" ]]; then
+    cp "build/libs/js-plantuml-${RELEASE_VERSION}.zip.asc" "github_release/js-plantuml-${RELEASE_VERSION}.zip.asc"
+  fi
+  cp "license-variants/plantuml-asl/build/libs/plantuml-asl-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-asl-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-asl/build/libs/plantuml-asl-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-asl-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-asl/build/libs/plantuml-asl-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-asl-${RELEASE_VERSION}-sources.jar.asc"
+  cp "license-variants/plantuml-bsd/build/libs/plantuml-bsd-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-bsd-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-bsd/build/libs/plantuml-bsd-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-bsd-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-bsd/build/libs/plantuml-bsd-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-bsd-${RELEASE_VERSION}-sources.jar.asc"
+  cp "license-variants/plantuml-epl/build/libs/plantuml-epl-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-epl-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-epl/build/libs/plantuml-epl-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-epl-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-epl/build/libs/plantuml-epl-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-epl-${RELEASE_VERSION}-sources.jar.asc"
+  cp "license-variants/plantuml-lgpl/build/libs/plantuml-lgpl-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-lgpl-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-lgpl/build/libs/plantuml-lgpl-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-lgpl-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-lgpl/build/libs/plantuml-lgpl-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-lgpl-${RELEASE_VERSION}-sources.jar.asc"
+  cp "license-variants/plantuml-mit/build/libs/plantuml-mit-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-mit-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-mit/build/libs/plantuml-mit-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-mit-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-mit/build/libs/plantuml-mit-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-mit-${RELEASE_VERSION}-sources.jar.asc"
+  cp "license-variants/plantuml-mit-light/build/libs/plantuml-mit-light-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-mit-light-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-mit-light/build/libs/plantuml-mit-light-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-mit-light-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-mit-light/build/libs/plantuml-mit-light-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-mit-light-${RELEASE_VERSION}-sources.jar.asc"
+  cp "license-variants/plantuml-gplv2/build/libs/plantuml-gplv2-${RELEASE_VERSION}.jar.asc" "github_release/plantuml-gplv2-${RELEASE_VERSION}.jar.asc"
+  cp "license-variants/plantuml-gplv2/build/libs/plantuml-gplv2-${RELEASE_VERSION}-javadoc.jar.asc" "github_release/plantuml-gplv2-${RELEASE_VERSION}-javadoc.jar.asc"
+  cp "license-variants/plantuml-gplv2/build/libs/plantuml-gplv2-${RELEASE_VERSION}-sources.jar.asc" "github_release/plantuml-gplv2-${RELEASE_VERSION}-sources.jar.asc"
+fi
+
+# Table of the artifacts (same layout as the snapshot), placed before the generated notes
+sed -e "s|@TAG@|${TAG}|g" -e "s|@VERSION@|${RELEASE_VERSION}|g" \
+  .github/scripts/notes-for-release.md > notes.txt
+
+gh release create \
+  --target "${GITHUB_SHA}" \
+  --notes-file notes.txt \
+  --generate-notes \
+  --title "${TAG}" \
+  "${TAG}" github_release/*
 
 echo "::notice title=::Released at ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG} 🎉"

@@ -1,0 +1,76 @@
+/* ========================================================================
+ * PlantUML : a free UML diagram generator
+ * ========================================================================
+ *
+ * (C) Copyright 2009-2024, Arnaud Roques
+ *
+ * Project Info:  https://plantuml.com
+ * 
+ * If you like this project or if you find it useful, you can support us at:
+ * 
+ * https://plantuml.com/patreon (only 1$ per month!)
+ * https://plantuml.com/paypal
+ * 
+ * This file is part of PlantUML.
+ *
+ * PlantUML is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * PlantUML distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+ * License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ * USA.
+ *
+ *
+ * Original Author:  Arnaud Roques
+ * 
+ *
+ */
+package net.sourceforge.plantuml;
+
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+import net.sourceforge.plantuml.teavm.TeaVM;
+
+public class Lazy<T> {
+
+	private final Supplier<T> supplier;
+	private T value;
+	private boolean initialized = false;
+
+	public Lazy(Supplier<T> supplier) {
+		this.supplier = supplier;
+	}
+
+	public Lazy(Function<Void, T> function) {
+		this.supplier = () -> function.apply(null);
+	}
+
+	public T get() {
+		// The C build is single-threaded, and its monitors do not survive a garbage
+		// collection happening while they are held (see Stdlib.readSpriteInC)
+		if (TeaVM.isC())
+			return getUnlocked();
+		return getLocked();
+	}
+
+	private synchronized T getLocked() {
+		return getUnlocked();
+	}
+
+	private T getUnlocked() {
+		if (initialized == false) {
+			value = supplier.get();
+			initialized = true;
+		}
+		return value;
+	}
+}

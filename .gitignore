@@ -6,12 +6,22 @@
 .idea
 *.iml
 out
+/bin
+#vscode files
+**/bin/
+/.vs
 
 # Ant result file
 plantuml.jar
 
 # Maven target folder
 target/
+
+# Gradle build folders
+/.gradle
+/license-variants/build-logic/.gradle
+/license-variants/build-logic/.kotlin
+build/
 
 # Eclipse Project files
 .settings/
@@ -20,3 +30,20 @@ target/
 
 # for jenv users
 .java-version
+
+# output of dev tests
+/outputdev
+
+*.patch
+**/*.class
+
+# macos
+.DS_Store
+
+# other
+tmp
+node_modules/
+other
+
+# Executable copied by compilec.bat
+/plantuml.exe

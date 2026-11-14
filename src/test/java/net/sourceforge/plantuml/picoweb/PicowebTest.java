@@ -1,0 +1,436 @@
+package net.sourceforge.plantuml.picoweb;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static net.sourceforge.plantuml.code.TranscoderUtil.getDefaultTranscoder;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpClient.Redirect;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import javax.imageio.ImageIO;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junitpioneer.jupiter.StdErr;
+import org.junitpioneer.jupiter.StdIo;
+
+import net.sourceforge.plantuml.FileFormat;
+import net.sourceforge.plantuml.cli.GlobalConfig;
+import net.sourceforge.plantuml.cli.GlobalConfigKey;
+import net.sourceforge.plantuml.dot.GraphvizRuntimeEnvironment;
+import net.sourceforge.plantuml.json.Json;
+import net.sourceforge.plantuml.json.JsonObject;
+import net.sourceforge.plantuml.log.Logme;
+
+@ResourceLock(value = "java.lang.System.err", mode = ResourceAccessMode.READ_WRITE)
+@DisabledOnOs(OS.WINDOWS)
+@Execution(ExecutionMode.SAME_THREAD)
+@Isolated
+class PicowebTest {
+
+	private int port;
+	private HttpClient http;
+	private ServerSocket serverSocket;
+	private ExecutorService executor;
+
+	@BeforeEach
+	void startServer() throws Exception {
+		GraphvizRuntimeEnvironment.getInstance().setDotExecutable("this_exe_do_not_exist");
+
+		PicoWebServer.enableStop = true;
+		serverSocket = new ServerSocket(0, 0, InetAddress.getByName("localhost"));
+		port = serverSocket.getLocalPort();
+
+		executor = Executors.newSingleThreadExecutor();
+
+		executor.submit(() -> {
+			try {
+				PicoWebServer.serverLoop(serverSocket);
+			} catch (IOException e) {
+				Logme.error(e);
+			}
+		});
+
+		http = HttpClient.newBuilder() //
+				.connectTimeout(Duration.ofSeconds(3)) //
+				.followRedirects(Redirect.NEVER) //
+				.build();
+	}
+
+	@AfterEach
+	void stopServer() throws Exception {
+		GraphvizRuntimeEnvironment.getInstance().setDotExecutable(null);
+
+		// Defensive: a /render request with no "options" reaches CliParser.parse()
+		// with a zero-length array, which CliOptions' zero-arg branch reads as "no
+		// CLI arguments at all" and reacts to by requesting the graphical UI
+		// (GlobalConfigKey.GUI is a process-wide singleton, never reset on its
+		// own). PicoWebServer.handleRenderRequest() now pads that array before it
+		// ever reaches CliParser, so this should no longer trigger - but it costs
+		// nothing to make sure this class never leaves that singleton flipped for
+		// whatever test runs after it in the same JVM.
+		GlobalConfig.getInstance().put(GlobalConfigKey.GUI, false);
+
+		serverSocket.close();
+		executor.shutdownNow();
+		executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+	}
+
+	@Test
+	void get_language_returns_java_keywords() throws Exception {
+		final HttpResponse<byte[]> resp = http_get("/language");
+		assertStatus(resp, 200);
+		assertTrue(body(resp).contains("abstract"));
+	}
+
+	@Test
+	void get_txt_with_valid_source_returns_ascii() throws Exception {
+		final String ok = getDefaultTranscoder().encode("A -> B");
+		final HttpResponse<byte[]> resp = http_get("/txt/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "text/plain");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		assertTrue(body(resp).contains("|A|"));
+		assertTrue(body(resp).contains("|B|"));
+	}
+
+	@Test
+	void get_svg_with_valid_source_returns_svg_root() throws Exception {
+		final String ok = getDefaultTranscoder().encode("A -> B");
+		final HttpResponse<byte[]> resp = http_get("/svg/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/svg+xml");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		assertIsSvgResponse(resp);
+	}
+
+	@Test
+	void get_svg_via_plantuml_alias_returns_svg_root() throws Exception {
+		final String ok = getDefaultTranscoder().encode("A -> B");
+		final HttpResponse<byte[]> resp = http_get("/plantuml/svg/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/svg+xml");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		assertIsSvgResponse(resp);
+	}
+
+	@Test
+	void get_png_with_valid_source_decodes_image() throws Exception {
+		final String ok = getDefaultTranscoder().encode("A -> B");
+		final HttpResponse<byte[]> resp = http_get("/png/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/png");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		final BufferedImage image = asImage(resp);
+		assertTrue(image.getWidth() > 10);
+		assertTrue(image.getHeight() > 10);
+	}
+
+	@Test
+	void get_png_via_plantuml_alias_decodes_image() throws Exception {
+		final String ok = getDefaultTranscoder().encode("A -> B");
+		final HttpResponse<byte[]> resp = http_get("/plantuml/png/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/png");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		final BufferedImage image = asImage(resp);
+		assertTrue(image.getWidth() > 10);
+		assertTrue(image.getHeight() > 10);
+	}
+
+	@Test
+	void get_png_with_invalid_source_returns_400_and_error_headers() throws Exception {
+		final String ok = getDefaultTranscoder().encode("foo");
+		final HttpResponse<byte[]> resp = http_get("/png/" + ok);
+		assertStatus(resp, 400);
+		assertContentType(resp.headers(), "image/png");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		assertHeader(resp.headers(), "X-PlantUML-Diagram-Error-Line");
+		final BufferedImage image = asImage(resp);
+		assertTrue(image.getWidth() > 10);
+		assertTrue(image.getHeight() > 10);
+	}
+
+	@Test
+	void get_svg_with_error_in_style_block_gives_the_faulty_line() throws Exception {
+		// Line 5 is "LineThickness abc", not "<style>" (2) nor "</style>" (7)
+		final String source = String.join("\n", "@startmindmap", "<style>", "root {", "  LineColor red",
+				"  LineThickness abc", "}", "</style>", "* root", "@endmindmap");
+		final HttpResponse<byte[]> resp = http_get("/svg/" + getDefaultTranscoder().encode(source));
+		assertStatus(resp, 400);
+		assertEquals("5", resp.headers().firstValue("X-PlantUML-Diagram-Error-Line").get());
+		assertTrue(resp.headers().firstValue("X-PlantUML-Diagram-Error").get().contains("Invalid value 'abc'"));
+	}
+
+	@Test
+	void get_svg_with_crash_while_drawing_gives_the_error_in_a_header() throws Exception {
+		final String source = "@startcrash\ncrash when drawing\n@endcrash";
+		final HttpResponse<byte[]> resp = http_get("/svg/" + getDefaultTranscoder().encode(source));
+		assertStatus(resp, 503);
+		final String error = resp.headers().firstValue("X-PlantUML-Diagram-Error").get();
+		assertTrue(error.contains("This is a normal crash when DRAWING"), error);
+		assertFalse(error.contains("\n"));
+	}
+
+	// "-D" with no value is rejected by the option parser: an unexpected failure of the
+	// server (500), not a diagram error. It is reported in the format that was asked for.
+
+	@Test
+	void post_render_unexpected_failure_gives_an_svg_with_the_stack_trace() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B", "-tsvg", "-D"));
+		assertStatus(resp, 500);
+		assertContentType(resp.headers(), "image/svg+xml");
+		assertTrue(resp.headers().firstValue("X-PlantUML-Diagram-Error").get().contains("CliParsingException"));
+		assertTrue(body(resp).startsWith("<svg "), body(resp));
+		assertTrue(body(resp).contains("CliParsingException"));
+	}
+
+	@Test
+	void post_render_unexpected_failure_gives_a_png() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B", "-tpng", "-D"));
+		assertStatus(resp, 500);
+		assertContentType(resp.headers(), "image/png");
+		final BufferedImage image = asImage(resp);
+		assertTrue(image.getWidth() > 10);
+		assertTrue(image.getHeight() > 10);
+	}
+
+	@Test
+	void post_render_unexpected_failure_gives_text_for_a_text_format() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B", "-tutxt", "-D"));
+		assertStatus(resp, 500);
+		assertTrue(resp.headers().firstValue("Content-Type").get().startsWith("text/plain"));
+		assertTrue(body(resp).contains("CliParsingException"));
+	}
+
+	@Test
+	void post_render_unexpected_failure_in_an_unsupported_format_gives_a_png() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B", "-tpdf", "-D"));
+		assertStatus(resp, 500);
+		assertContentType(resp.headers(), "image/png");
+	}
+
+	@Test
+	void post_render_bad_json_stays_a_text_400() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", "not json");
+		assertStatus(resp, 400);
+		assertContentType(resp.headers(), "text/plain");
+	}
+
+	// %chr(13)%chr(10) builds a real CR/LF inside the message of a failing !include: it must
+	// not become a header (nor the start of a second response) of the answer.
+	@Test
+	void post_render_error_text_cannot_inject_headers() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render",
+				renderRequestJson("!include /nonexistent-%chr(13)%chr(10)X-Injected: yes.txt"));
+		assertFalse(resp.headers().firstValue("X-Injected").isPresent());
+		assertTrue(resp.headers().firstValue("X-PlantUML-Diagram-Error").get().contains("X-Injected"));
+	}
+
+	@Test
+	void oneLine_folds_every_control_character() {
+		assertEquals("a b c d", PicoWebServer.oneLine("a\r\nb\rc\nd"));
+		assertEquals("a b", PicoWebServer.oneLine("a\u0000b"));
+		assertEquals("", PicoWebServer.oneLine(null));
+	}
+
+	// --config and -I read a file of the server, outside of the security profiles
+	@Test
+	void post_render_refuses_options_that_act_on_the_server() throws Exception {
+		for (String option : new String[] { "--config", "-config", "-I/etc/passwd", "--include", "--dot-path",
+				"-graphvizdot", "-o" }) {
+			final HttpResponse<byte[]> resp = http_post_json("/render",
+					renderRequestJson("A -> B", "-tsvg", option, "/etc/passwd"));
+			assertStatus(resp, 400);
+			assertFalse(body(resp).contains("root:"), option);
+		}
+	}
+
+	@Test
+	void post_render_accepts_the_options_that_shape_the_image() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B", "-tsvg",
+				"--dark-mode", "-DFOO=1", "-Sbackgroundcolor=red", "--theme", "plain", "--charset", "UTF-8"));
+		assertStatus(resp, 200);
+	}
+
+	@Test
+	void guessFormat_reads_the_format_of_the_options() {
+		assertEquals(FileFormat.PNG, PicoWebServer.guessFormat(new String[] {}));
+		assertEquals(FileFormat.SVG, PicoWebServer.guessFormat(new String[] { "-D", "-tsvg" }));
+		assertEquals(FileFormat.SVG, PicoWebServer.guessFormat(new String[] { "--format", "svg" }));
+		assertEquals(FileFormat.UTXT, PicoWebServer.guessFormat(new String[] { "-f", "utxt" }));
+		assertEquals(FileFormat.ATXT, PicoWebServer.guessFormat(new String[] { "-ttxt" }));
+		assertEquals(FileFormat.PNG, PicoWebServer.guessFormat(new String[] { "-tpdf" }));
+		assertEquals(FileFormat.PNG, PicoWebServer.guessFormat(new String[] { "--format" }));
+	}
+
+	@Test
+	void get_unknown_path_redirects_with_302() throws Exception {
+		final HttpResponse<byte[]> resp = http_get("/foo");
+		assertStatus(resp, 302);
+		assertHeader(resp.headers(), "location");
+	}
+
+	@Test
+	void post_render_png_with_valid_source_returns_png() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B"));
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/png");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		final BufferedImage image = asImage(resp);
+		assertTrue(image.getWidth() > 10);
+		assertTrue(image.getHeight() > 10);
+	}
+
+	@Test
+	void post_render_svg_with_tsvg_option_returns_svg() throws Exception {
+		final HttpResponse<byte[]> resp = http_post_json("/render", renderRequestJson("A -> B", "-tsvg"));
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/svg+xml");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		assertIsSvgResponse(resp);
+	}
+
+	@Test
+	void post_render_with_malformed_json_returns_400_and_message() throws Exception {
+		final HttpResponse<byte[]> resp = http_post("/render", "application/json; charset=utf-8", "123abc");
+		assertStatus(resp, 400);
+		assertContentType(resp.headers(), "text/plain");
+		assertTrue(body(resp).contains("Error parsing request json: Unexpected character"));
+
+	}
+
+	@Test
+	@StdIo
+	void get_png_bad_graphviz(StdErr err) throws Exception {
+		final String ok = getDefaultTranscoder().encode("class 1\nclass B");
+		final HttpResponse<byte[]> resp = http_get("/png/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/png");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		final BufferedImage image = asImage(resp);
+		assertTrue(image.getWidth() > 10);
+		assertTrue(image.getHeight() > 10);
+		// assertTrue(err.capturedString().contains("this_exe_do_not_exist"));
+	}
+
+	@Test
+	@StdIo
+	void get_png_svg_graphviz(StdErr err) throws Exception {
+		final String ok = getDefaultTranscoder().encode("class 1\nclass B");
+		final HttpResponse<byte[]> resp = http_get("/svg/" + ok);
+		assertStatus(resp, 200);
+		assertContentType(resp.headers(), "image/svg+xml");
+		assertHeader(resp.headers(), "access-control-allow-origin");
+		assertHeader(resp.headers(), "server");
+		assertNoHeader(resp.headers(), "X-PlantUML-Diagram-Error");
+		assertIsSvgResponse(resp);
+		// assertTrue(err.capturedString().contains("this_exe_do_not_exist"));
+	}
+
+	// --------------------------------------
+
+	private HttpResponse<byte[]> http_get(String path) throws Exception {
+		final HttpRequest req = HttpRequest.newBuilder() //
+				.uri(URI.create("http://localhost:" + port + path)) //
+				.timeout(Duration.ofSeconds(5)) //
+				.GET() //
+				.build();
+		return http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+	}
+
+	private HttpResponse<byte[]> http_post_json(String path, String json) throws Exception {
+		return http_post(path, "application/json; charset=utf-8", json);
+	}
+
+	private HttpResponse<byte[]> http_post(String path, String contentType, String body) throws Exception {
+		final HttpRequest req = HttpRequest.newBuilder() //
+				.uri(URI.create("http://localhost:" + port + path)) //
+				.timeout(Duration.ofSeconds(5)) //
+				.header("Content-Type", contentType) //
+				.POST(HttpRequest.BodyPublishers.ofString(body, UTF_8)) //
+				.build();
+		return http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+	}
+
+	private static String renderRequestJson(String source, String... options) {
+		final JsonObject object = Json.object();
+		object.add("source", source);
+		if (options != null && options.length > 0)
+			object.add("options", Json.array(options));
+
+		return object.toString();
+	}
+
+	private String body(final HttpResponse<byte[]> resp) {
+		return new String(resp.body());
+	}
+
+	private static BufferedImage asImage(HttpResponse<byte[]> resp) throws IOException {
+		return ImageIO.read(new ByteArrayInputStream(resp.body()));
+	}
+
+	private void assertStatus(HttpResponse<?> resp, int expected) {
+		assertEquals(expected, resp.statusCode());
+	}
+
+	private static void assertContentType(HttpHeaders headers, String expected) {
+		final List<String> values = headers.allValues("Content-Type");
+		assertTrue(values.contains(expected), values.toString());
+	}
+
+	private void assertNoHeader(HttpHeaders headers, String key) {
+		assertFalse(headers.map().containsKey(key));
+	}
+
+	private void assertHeader(HttpHeaders headers, String key) {
+		assertTrue(headers.map().containsKey(key));
+	}
+
+	private void assertIsSvgResponse(HttpResponse<byte[]> resp) {
+		final String body = body(resp);
+		assertTrue(body.matches("(?s)^<svg [^>]*>\\s*<\\?plantuml (\\$version\\$|\\d+\\.\\d+(\\.\\d+)?(beta\\d+)?)\\s*\\?>.*"), body);
+	}
+
+}

@@ -1,0 +1,241 @@
+/* ========================================================================
+ * PlantUML : a free UML diagram generator
+ * ========================================================================
+ *
+ * (C) Copyright 2009-2024, Arnaud Roques
+ *
+ * Project Info:  https://plantuml.com
+ *
+ * If you like this project or if you find it useful, you can support us at:
+ *
+ * https://plantuml.com/patreon (only 1$ per month!)
+ * https://plantuml.com/paypal
+ *
+ * This file is part of PlantUML.
+ *
+ * PlantUML is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * PlantUML distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+ * License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ * USA.
+ *
+ *
+ * Original Author:  David Fyfe
+ *
+ */
+package net.sourceforge.plantuml.chart;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import net.sourceforge.plantuml.klimt.UPath;
+import net.sourceforge.plantuml.klimt.UStroke;
+import net.sourceforge.plantuml.klimt.UTranslate;
+import net.sourceforge.plantuml.klimt.color.HColor;
+import net.sourceforge.plantuml.klimt.color.HColors;
+import net.sourceforge.plantuml.klimt.creole.Display;
+import net.sourceforge.plantuml.klimt.drawing.UGraphic;
+import net.sourceforge.plantuml.klimt.font.FontConfiguration;
+import net.sourceforge.plantuml.klimt.font.UFont;
+import net.sourceforge.plantuml.klimt.font.UFontFace;
+import net.sourceforge.plantuml.klimt.font.UFontFactory;
+import net.sourceforge.plantuml.klimt.geom.HorizontalAlignment;
+import net.sourceforge.plantuml.klimt.geom.XDimension2D;
+import net.sourceforge.plantuml.klimt.geom.NaturalSpline;
+import net.sourceforge.plantuml.klimt.geom.XCubicCurve2D;
+import net.sourceforge.plantuml.klimt.geom.XPoint2D;
+import net.sourceforge.plantuml.klimt.shape.TextBlock;
+import net.sourceforge.plantuml.klimt.shape.ULine;
+import net.sourceforge.plantuml.style.ISkinParam;
+
+public class LineRenderer {
+
+	private final ISkinParam skinParam;
+	private final double plotWidth;
+	private final double plotHeight;
+	private final int categoryCount;
+	private final ChartAxis axis;
+	private final ChartAxis xAxis;
+
+	public LineRenderer(ISkinParam skinParam, double plotWidth, double plotHeight, int categoryCount,
+			ChartAxis axis, ChartAxis xAxis) {
+		this.skinParam = skinParam;
+		this.plotWidth = plotWidth;
+		this.plotHeight = plotHeight;
+		this.categoryCount = categoryCount;
+		this.axis = axis;
+		this.xAxis = xAxis;
+	}
+
+	public void draw(UGraphic ug, ChartSeries series, HColor color, double lineThickness) {
+		drawLine(ug, series, color, lineThickness);
+		// The labels come last, so that the line does not cross them
+		if (series.isShowLabels())
+			drawLabels(ug, series);
+	}
+
+	private void drawLine(UGraphic ug, ChartSeries series, HColor color, double lineThickness) {
+		if (categoryCount == 0 && !series.hasExplicitXValues())
+			return;
+
+		final UStroke stroke = UStroke.withThickness(lineThickness);
+
+		if (series.isInterpolate()) {
+			final List<XCubicCurve2D> curves = NaturalSpline.through(points(series));
+			if (curves.isEmpty() == false) {
+				final UPath curve = UPath.none();
+				curve.moveTo(curves.get(0).getP1());
+				for (XCubicCurve2D bezier : curves)
+					curve.cubicTo(bezier.ctrlx1, bezier.ctrly1, bezier.ctrlx2, bezier.ctrly2, bezier.x2, bezier.y2);
+				ug.apply(color).apply(stroke).apply(HColors.none().bg()).draw(curve);
+				return;
+			}
+		}
+
+		// A missing value is skipped: the values on both sides of it are joined by one segment
+		if (series.isConnect()) {
+			final List<XPoint2D> points = points(series);
+			for (int i = 0; i < points.size() - 1; i++) {
+				final XPoint2D p1 = points.get(i);
+				final XPoint2D p2 = points.get(i + 1);
+				final ULine line = new ULine(p2.x - p1.x, p2.y - p1.y);
+				ug.apply(color).apply(stroke).apply(UTranslate.dx(p1.x).compose(UTranslate.dy(p1.y))).draw(line);
+			}
+			return;
+		}
+
+		final List<Double> values = series.getValues();
+
+		if (series.hasExplicitXValues()) {
+			// Coordinate-pair mode: use explicit x-values
+			final List<Double> xValues = series.getXValues();
+
+			// Safety check
+			if (xAxis == null) {
+				System.err.println("ERROR: xAxis is null in coordinate-pair mode!");
+				return;
+			}
+
+			// Draw line segments
+			for (int i = 0; i < values.size() - 1; i++) {
+				// A missing value (spread over an h-axis range, see ChartDiagram) leaves a gap
+				if (values.get(i) == null || values.get(i + 1) == null)
+					continue;
+				final double xVal1 = xValues.get(i);
+				final double yVal1 = values.get(i);
+				final double xVal2 = xValues.get(i + 1);
+				final double yVal2 = values.get(i + 1);
+
+				final double x1 = xAxis.valueToPixel(xVal1, 0, plotWidth);
+				final double y1 = plotHeight - (yVal1 - axis.getMin()) / (axis.getMax() - axis.getMin()) * plotHeight;
+				final double x2 = xAxis.valueToPixel(xVal2, 0, plotWidth);
+				final double y2 = plotHeight - (yVal2 - axis.getMin()) / (axis.getMax() - axis.getMin()) * plotHeight;
+
+				final ULine line = new ULine(x2 - x1, y2 - y1);
+				ug.apply(color).apply(stroke).apply(UTranslate.dx(x1).compose(UTranslate.dy(y1))).draw(line);
+			}
+		} else {
+			// Index-based mode: use category positioning
+			final double categoryWidth = plotWidth / categoryCount;
+
+			// Draw line segments
+			for (int i = 0; i < Math.min(values.size() - 1, categoryCount - 1); i++) {
+				// No segment touches a missing value, so the line has a gap there
+				if (values.get(i) == null || values.get(i + 1) == null)
+					continue;
+				final double value1 = values.get(i);
+				final double value2 = values.get(i + 1);
+
+				final double x1 = (i + 0.5) * categoryWidth;
+				final double y1 = plotHeight - (value1 - axis.getMin()) / (axis.getMax() - axis.getMin()) * plotHeight;
+
+				final double x2 = (i + 1.5) * categoryWidth;
+				final double y2 = plotHeight - (value2 - axis.getMin()) / (axis.getMax() - axis.getMin()) * plotHeight;
+
+				final ULine line = new ULine(x2 - x1, y2 - y1);
+				ug.apply(color).apply(stroke).apply(UTranslate.dx(x1).compose(UTranslate.dy(y1))).draw(line);
+			}
+		}
+	}
+
+	// The points of the series in pixels, leaving out missing values
+	private List<XPoint2D> points(ChartSeries series) {
+		final List<XPoint2D> result = new ArrayList<>();
+		final List<Double> values = series.getValues();
+		final double range = axis.getMax() - axis.getMin();
+		if (series.hasExplicitXValues()) {
+			if (xAxis == null)
+				return result;
+			final List<Double> xValues = series.getXValues();
+			for (int i = 0; i < values.size(); i++)
+				if (values.get(i) != null)
+					result.add(new XPoint2D(xAxis.valueToPixel(xValues.get(i), 0, plotWidth),
+							plotHeight - (values.get(i) - axis.getMin()) / range * plotHeight));
+		} else {
+			final double categoryWidth = plotWidth / categoryCount;
+			for (int i = 0; i < Math.min(values.size(), categoryCount); i++)
+				if (values.get(i) != null)
+					result.add(new XPoint2D((i + 0.5) * categoryWidth,
+							plotHeight - (values.get(i) - axis.getMin()) / range * plotHeight));
+		}
+		return result;
+	}
+
+	// The value of each point, above it. A missing value has no point, so no label
+	private void drawLabels(UGraphic ug, ChartSeries series) {
+		final List<Double> values = series.getValues();
+		final double range = axis.getMax() - axis.getMin();
+		final int count;
+		if (series.hasExplicitXValues()) {
+			if (xAxis == null)
+				return;
+			count = values.size();
+		} else {
+			count = Math.min(values.size(), categoryCount);
+		}
+		final double categoryWidth = categoryCount == 0 ? 0 : plotWidth / categoryCount;
+		for (int i = 0; i < count; i++) {
+			if (values.get(i) == null)
+				continue;
+			final double x = series.hasExplicitXValues() ? xAxis.valueToPixel(series.getXValues().get(i), 0, plotWidth)
+					: (i + 0.5) * categoryWidth;
+			final double y = plotHeight - (values.get(i) - axis.getMin()) / range * plotHeight;
+			drawLabel(ug, values.get(i), x, y - 5);
+		}
+	}
+
+	private void drawLabel(UGraphic ug, double value, double x, double y) {
+		try {
+			final UFont font = UFontFactory.sansSerif(10).withFontFace(UFontFace.bold());
+			final HColor labelColor = skinParam.getIHtmlColorSet().getColor("#000000");
+			final FontConfiguration fontConfig = FontConfiguration.create(font, labelColor, labelColor, null);
+			final TextBlock textBlock = Display.getWithNewlines(skinParam.getPragma(), formatValue(value))
+					.create(fontConfig, HorizontalAlignment.CENTER, skinParam);
+			final XDimension2D textDim = textBlock.calculateDimension(ug.getStringBounder());
+			final double labelX = x - textDim.getWidth() / 2;
+			final double labelY = y - textDim.getHeight() - 2;
+			textBlock.drawU(ug.apply(UTranslate.dx(labelX).compose(UTranslate.dy(labelY))));
+		} catch (Exception e) {
+			// Silently ignore rendering errors
+		}
+	}
+
+	private String formatValue(double value) {
+		if (Math.abs(value) < 0.01 && value != 0)
+			return String.format(Locale.ROOT, "%.2e", value);
+		if (value == (long) value)
+			return String.format(Locale.ROOT, "%d", (long) value);
+		return String.format(Locale.ROOT, "%.2f", value);
+	}
+
+}

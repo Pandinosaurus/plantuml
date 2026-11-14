@@ -1,0 +1,742 @@
+/* ========================================================================
+ * PlantUML : a free UML diagram generator
+ * ========================================================================
+ *
+ * (C) Copyright 2009-2024, Arnaud Roques
+ *
+ * Project Info:  https://plantuml.com
+ *
+ * If you like this project or if you find it useful, you can support us at:
+ *
+ * https://plantuml.com/patreon (only 1$ per month!)
+ * https://plantuml.com/paypal
+ *
+ * This file is part of PlantUML.
+ *
+ * PlantUML is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * PlantUML distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+ * License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ * USA.
+ *
+ *
+ * Original Author:  Arnaud Roques
+ *
+ *
+ */
+package net.sourceforge.plantuml;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import net.sourceforge.plantuml.asciiart.Wcwidth;
+import net.sourceforge.plantuml.klimt.creole.Display;
+import net.sourceforge.plantuml.regex.Matcher2;
+import net.sourceforge.plantuml.regex.Pattern2;
+import net.sourceforge.plantuml.teavm.TeaVM;
+import net.sourceforge.plantuml.utils.Direction;
+import net.sourceforge.plantuml.utils.Log;
+import net.sourceforge.plantuml.utils.MyCollections;
+
+// Do not move
+public class StringUtils {
+
+	public static String goUpperCase(String s) {
+		return s.toUpperCase(Locale.ENGLISH);
+	}
+
+	public static String goLowerCase(String s) {
+		return s.toLowerCase(Locale.ENGLISH);
+	}
+
+	public static String eventuallyRemoveStartingAndEndingDoubleQuote(String s, String format) {
+		if (s == null)
+			return null;
+
+		if (s.length() < 2)
+			return s;
+
+		if (format.contains("\"") && s.length() > 1 && isDoubleQuote(s.charAt(0))
+				&& isDoubleQuote(s.charAt(s.length() - 1)))
+			return s.substring(1, s.length() - 1);
+
+		if (format.contains("(") && s.startsWith("(") && s.endsWith(")"))
+			return s.substring(1, s.length() - 1);
+
+		if (format.contains("[") && s.startsWith("[") && s.endsWith("]"))
+			return s.substring(1, s.length() - 1);
+
+		if (format.contains(":") && s.startsWith(":") && s.endsWith(":"))
+			return s.substring(1, s.length() - 1);
+
+		return s;
+	}
+
+	public static String eventuallyRemoveStartingAndEndingDoubleQuote(String s) {
+		if (s == null)
+			return s;
+
+		return eventuallyRemoveStartingAndEndingDoubleQuote(s, "\"([:");
+	}
+
+	private static boolean isDoubleQuote(char c) {
+		return c == '\"' || c == '\u201c' || c == '\u201d' || c == '\u00ab' || c == '\u00bb';
+	}
+
+	public static final char USER_NEWLINE = '\uEE00';
+	public static final char USER_TAB = '\uEE01';
+
+	public static final char HR_SIMPLE = '\uEEFF';
+	public static final char HR_DOUBLE = '\uEEFE';
+	public static final char HR_DOTTED = '\uEEFD';
+	public static final char HR_BOLD = '\uEEFC';
+
+	public static final char PRIVATE_FIELD = '\uEEFB';
+	public static final char PROTECTED_FIELD = '\uEEFA';
+	public static final char PACKAGE_PRIVATE_FIELD = '\uEEF9';
+	public static final char PUBLIC_FIELD = '\uEEF8';
+	public static final char PRIVATE_METHOD = '\uEEF7';
+	public static final char PROTECTED_METHOD = '\uEEF6';
+	public static final char PACKAGE_PRIVATE_METHOD = '\uEEF5';
+	public static final char PUBLIC_METHOD = '\uEEF4';
+	public static final char IE_MANDATORY = '\uEEF3';
+
+	public static final char BOLD_START = '\uEEF2';
+	public static final char BOLD_END = '\uEEF1';
+
+	public static final char INTERNAL_BOLD = '\uE100';
+
+	public static String toInternalBoldNumber(String s) {
+		final StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < s.length(); i++) {
+			final char c = s.charAt(i);
+			if (c >= '0' && c <= '9')
+				sb.append(Character.toChars('\uE100' + c - '0'));
+			else
+				sb.append(c);
+
+		}
+		return sb.toString();
+	}
+
+	public static void appendInternalToRealBoldNumber(StringBuilder sb, char c) {
+		if (c >= '\uE100' && c <= ('\uE100' + 9))
+			sb.append(Character.toChars(0x1d7ce + c - '\uE100'));
+		else
+			sb.append(c);
+
+	}
+
+	public static void appendInternalToPlainNumber(StringBuilder sb, char c) {
+		if (c >= '\uE100' && c <= ('\uE100' + 9))
+			sb.append(Character.toChars('0' + c - '\uE100'));
+		else
+			sb.append(c);
+
+	}
+
+	final static public List<String> getSplit(Pattern2 pattern, String line) {
+		final Matcher2 m = pattern.matcher(line, 0);
+		if (m.find() == false)
+			return null;
+
+		final List<String> result = new ArrayList<>();
+		for (int i = 1; i <= m.groupCount(); i++)
+			result.add(m.group(i));
+
+		return result;
+	}
+
+	public static boolean isNotEmpty(CharSequence s) {
+		return !isEmpty(s);
+	}
+
+	public static boolean isNotEmpty(List<? extends CharSequence> input) {
+		return input != null && input.size() > 0;
+	}
+
+	public static boolean isEmpty(CharSequence s) {
+		if (s == null)
+			return true;
+		final int length = s.length();
+		if (length == 0)
+			return true;
+		for (int i = 0; i < length; i++) {
+			if (!isSpaceOrTabOrNull(s.charAt(i)))
+				return false;
+		}
+		return true;
+	}
+
+	public static String manageHtml(String s) {
+		s = s.replace("<", "&lt;");
+		s = s.replace(">", "&gt;");
+		return s;
+	}
+
+	public static String unicode(String s) {
+		final StringBuilder result = new StringBuilder();
+		for (char c : s.toCharArray())
+			if (c > 127 || c == '&' || c == '|') {
+				final int i = c;
+				result.append("&#" + i + ";");
+			} else {
+				result.append(c);
+			}
+
+		return result.toString();
+	}
+
+	public static String unicodeForHtml(String s) {
+		final StringBuilder result = new StringBuilder();
+		for (char c : s.toCharArray())
+			if (c > 127 || c == '&' || c == '|' || c == '<' || c == '>') {
+				final int i = c;
+				result.append("&#" + i + ";");
+			} else {
+				result.append(c);
+			}
+
+		return result.toString();
+	}
+
+	public static String unicodeForHtml(Display display) {
+		final StringBuilder result = new StringBuilder();
+		for (int i = 0; i < display.size(); i++) {
+			result.append(unicodeForHtml(display.get(i).toString()));
+			if (i < display.size() - 1)
+				result.append("<br>");
+
+		}
+		return result.toString();
+	}
+
+	public static String manageArrowForSequence(String s) {
+		s = s.replace('=', '-').toLowerCase();
+		return s;
+	}
+
+	public static String capitalize(String s) {
+		return s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
+	}
+
+	public static char goUpperCase(char c) {
+		return goUpperCase("" + c).charAt(0);
+	}
+
+	public static char goLowerCase(char c) {
+		return goLowerCase("" + c).charAt(0);
+	}
+
+	public static String manageArrowForCuca(String s) {
+		final Direction dir = getArrowDirection(s);
+		s = s.replace('=', '-');
+		s = s.replaceAll("\\w*", "");
+		if (dir == Direction.LEFT || dir == Direction.RIGHT)
+			s = s.replaceAll("-+", "-");
+
+		if (s.length() == 2 && (dir == Direction.UP || dir == Direction.DOWN))
+			s = s.replaceFirst("-", "--");
+
+		return s;
+	}
+
+	public static String manageQueueForCuca(String s) {
+		final Direction dir = getQueueDirection(s);
+		s = s.replace('=', '-');
+		s = s.replaceAll("\\w*", "");
+		if (dir == Direction.LEFT || dir == Direction.RIGHT)
+			s = s.replaceAll("-+", "-");
+
+		if (s.length() == 1 && (dir == Direction.UP || dir == Direction.DOWN))
+			s = s.replaceFirst("-", "--");
+
+		return s;
+	}
+
+	public static Direction getArrowDirection(String s) {
+		if (s.endsWith(">"))
+			return getQueueDirection(s.substring(0, s.length() - 1));
+
+		if (s.startsWith("<")) {
+			if (s.length() == 2)
+				return Direction.LEFT;
+
+			return Direction.UP;
+		}
+		throw new IllegalArgumentException(s);
+	}
+
+	public static Direction getQueueDirection(String s) {
+		if (s.indexOf('<') != -1 || s.indexOf('>') != -1)
+			throw new IllegalArgumentException(s);
+
+		s = s.toLowerCase();
+		if (s.contains("left"))
+			return Direction.LEFT;
+
+		if (s.contains("right"))
+			return Direction.RIGHT;
+
+		if (s.contains("up"))
+			return Direction.UP;
+
+		if (s.contains("down")) {
+			return Direction.DOWN;
+		}
+		if (s.contains("l"))
+			return Direction.LEFT;
+
+		if (s.contains("r"))
+			return Direction.RIGHT;
+
+		if (s.contains("u"))
+			return Direction.UP;
+
+		if (s.contains("d"))
+			return Direction.DOWN;
+
+		if (s.length() == 1)
+			return Direction.RIGHT;
+
+		return Direction.DOWN;
+	}
+
+	// public static Code eventuallyRemoveStartingAndEndingDoubleQuote(Code s) {
+	// return Code.of(eventuallyRemoveStartingAndEndingDoubleQuote(s.getCode()));
+	// }
+
+	public static boolean isCJK(char c) {
+		final Character.UnicodeBlock block = Character.UnicodeBlock.of(c);
+		Log.println("block=" + block);
+		return false;
+	}
+
+//	public static char hiddenLesserThan() {
+//		return '\u0005';
+//	}
+//
+//	public static char hiddenBiggerThan() {
+//		return '\u0006';
+//	}
+//	public static String hideComparatorCharacters(String s) {
+//		s = s.replace('<', hiddenLesserThan());
+//		s = s.replace('>', hiddenBiggerThan());
+//		return s;
+//	}
+
+//	public static String showComparatorCharacters(String s) {
+//	    final int len = s.length();
+//	    for (int i = 0; i < len; i++) {
+//	        final char c = s.charAt(i);
+//	        if (c == '\u0005' || c == '\u0006') {
+//	            // First hidden char found at position i.
+//	            // Copy the unchanged prefix and then translate the rest in one pass.
+//	            final char[] buf = new char[len];
+//	            s.getChars(0, i, buf, 0);
+//	            buf[i] = (c == '\u0005') ? '<' : '>';
+//	            for (int j = i + 1; j < len; j++) {
+//	                final char cj = s.charAt(j);
+//	                if (cj == '\u0005')
+//	                    buf[j] = '<';
+//	                else if (cj == '\u0006')
+//	                    buf[j] = '>';
+//	                else
+//	                    buf[j] = cj;
+//	            }
+//	            return new String(buf);
+//	        }
+//	    }
+//	    return s;
+//	}
+//	private static int getWidth(Display stringsToDisplay) {
+//		int result = 1;
+//		for (CharSequence s : stringsToDisplay)
+//			if (s != null && result < s.length())
+//				result = s.length();
+//
+//		return result;
+//	}
+
+	public static int getHeight(List<? extends CharSequence> stringsToDisplay) {
+		return stringsToDisplay.size();
+	}
+
+	public static int getHeight(Display stringsToDisplay) {
+		return stringsToDisplay.size();
+	}
+
+	public static boolean isDiagramCacheable(String uml) {
+		if (uml.length() < 35)
+			return false;
+
+//		uml = uml.toLowerCase();
+//		if (uml.startsWith("@startuml\nversion\n")) {
+//			return false;
+//		}
+//		if (uml.startsWith("@startuml\nlicense\n")) {
+//			return false;
+//		}
+//		if (uml.startsWith("@startuml\nlicence\n")) {
+//			return false;
+//		}
+//		if (uml.startsWith("@startuml\nauthor\n")) {
+//			return false;
+//		}
+//		if (uml.startsWith("@startuml\ndonors\n")) {
+//			return false;
+//		}
+////		if (uml.startsWith("@startuml\ncheckversion")) {
+////			return false;
+////		}
+//		if (uml.startsWith("@startuml\ntestdot\n")) {
+//			return false;
+//		}
+//		if (uml.startsWith("@startuml\nsudoku\n")) {
+//			return false;
+//		}
+//		if (uml.startsWith("@startuml\nstdlib\n")) {
+//			return false;
+//		}
+		return true;
+	}
+
+	public static int getPragmaRevision(String uml) {
+		uml = uml.toLowerCase();
+		final String header = "@startuml\n!pragma revision ";
+		if (uml.startsWith(header) == false)
+			return -1;
+
+		int x1 = header.length();
+		int x2 = x1;
+		while (x2 < uml.length() && Character.isDigit(uml.charAt(x2)))
+			x2++;
+
+		if (x1 == x2)
+			return -1;
+
+		return Integer.parseInt(uml.substring(x1, x2));
+	}
+
+	private final static Pattern2 SPLIT_COMMA = Pattern2.cmpile("([%pLN_.]+|[%g][^%g]+[%g])");
+
+	public static List<String> splitComma(String s) {
+		s = trin(s);
+		final List<String> result = new ArrayList<>();
+		final Matcher2 m = SPLIT_COMMA.matcher(s, 0);
+		while (m.find())
+			result.add(eventuallyRemoveStartingAndEndingDoubleQuote(m.group(0)));
+
+		return MyCollections.unmodifiableList(result);
+	}
+
+	public static String getUid(String uid1, int uid2) {
+		return uid1 + String.format("%04d", uid2);
+	}
+
+	public static <O> List<O> merge(List<O> l1, List<O> l2) {
+		final List<O> result = new ArrayList<>(l1);
+		result.addAll(l2);
+		return MyCollections.unmodifiableList(result);
+	}
+
+	public static boolean endsWithBackslash(final String s) {
+		return s.endsWith("\\") && s.endsWith("\\\\") == false;
+	}
+
+	public static String rot(String s) {
+		final StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if ((c >= 'a' && c <= 'm') || (c >= 'A' && c <= 'M'))
+				c += 13;
+			else if ((c >= 'n' && c <= 'z') || (c >= 'N' && c <= 'Z'))
+				c -= 13;
+			else if (c > 126)
+				throw new IllegalArgumentException(s);
+
+			sb.append(c);
+		}
+		return sb.toString();
+	}
+
+	private static final Pattern UNICODE = Pattern.compile("\\<U\\+([0-9a-fA-F]{4,5})\\>");
+
+	public static String manageUnicodeNotationUplus(String s) {
+		if (s.indexOf("<U+") < 0)
+			return s;
+
+		final Matcher matcher = UNICODE.matcher(s);
+		final StringBuffer result = new StringBuffer(); // Can't be switched to StringBuilder in order to support Java 8
+		while (matcher.find()) {
+			final String num = matcher.group(1);
+			final int value = Integer.parseInt(num, 16);
+			final String replace = new String(Character.toChars(value));
+			matcher.appendReplacement(result, Matcher.quoteReplacement(replace));
+		}
+		matcher.appendTail(result);
+		return result.toString();
+	}
+
+	public static long seed(String string) {
+		long h = 1125899906842597L; // prime
+		final int len = string.length();
+
+		for (int i = 0; i < len; i++)
+			h = 31 * h + string.charAt(i);
+
+		return h;
+	}
+
+	private static final double[] POW10 = { 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14,
+			1e15 };
+
+	// Formats x with at most `decimal` digits after the decimal point, trimming useless
+	// trailing zeros (and the dot if it becomes orphan). Moved out of SvgGraphics#format
+	// so it can be unit-tested and reused; see StringUtilsTest for the edge cases.
+	//
+	// This avoids String.format/Locale/BigDecimal, which are costly on the JVM and even
+	// more so once TeaVM compiles this to JavaScript: x is scaled to an integer, rounded
+	// with plain double/int arithmetic, and the result string is built by hand from its
+	// digits. That scale-and-round step can (extremely rarely) disagree with an exact
+	// decimal rounding when x lands almost exactly on a rounding boundary, so such
+	// near-ties -- and magnitudes too large to scale safely as an int -- fall back to
+	// the slower but always-exact String.format-based path below.
+	public static String formatDecimal(final double x, final int decimal) {
+		if (x == 0.0)
+			return "0";
+
+		if (decimal >= 0 && decimal < POW10.length && Double.isNaN(x) == false && Double.isInfinite(x) == false) {
+			final boolean negative = x < 0;
+			final double abs = negative ? -x : x;
+			final double scaled = abs * POW10[decimal];
+
+			if (scaled < 2_000_000_000.0) {
+				final double floor = Math.floor(scaled);
+				final double frac = scaled - floor;
+				// how far scaled can plausibly be from its true value, given the two
+				// multiplications (abs, POW10) that produced it
+				final double margin = Math.max(scaled, 1.0) * 4e-15;
+				if (Math.abs(frac - 0.5) >= margin) {
+					final int rounded = (int) floor + (frac < 0.5 ? 0 : 1);
+					return buildFixedDecimal(rounded, decimal, negative);
+				}
+				// A true tie: abs is an exact multiple of 2^-(decimal+1) (the scaling by a
+				// power of two is exact), so abs is exactly the decimal number
+				// (2k+1)/(2*10^decimal), scaled is exact, and String.format rounds it half up.
+				// Common with coordinates like 30.5625. Unlike a near-tie (1.005, 0.145...),
+				// there is nothing to decide, so the slow path is not needed.
+				final double dyadic = abs * (double) (1L << (decimal + 1));
+				if (dyadic == Math.floor(dyadic) && frac == 0.5) {
+					final int rounded = (int) floor + 1;
+					return buildFixedDecimal(rounded, decimal, negative);
+				}
+				// Near-tie. The String.format of the C build does not round like the JVM one
+				// (46.9625 gives 46.962 instead of 46.963), so the JVM rule is applied by hand.
+				if (TeaVM.isC()) {
+					final String viaDigits = roundHalfUpOnShortestDigits(abs, decimal, negative);
+					if (viaDigits != null)
+						return viaDigits;
+				}
+			}
+		}
+
+		final String s = String.format(Locale.ROOT, "%." + decimal + "f", x);
+		return trimZeros(s);
+	}
+
+	// What String.format("%.nf") does on the JVM: the shortest decimal representation of
+	// the double is rounded half up. Returns null when this representation cannot be used
+	// (exponent notation), so that the caller falls back on String.format.
+	private static String roundHalfUpOnShortestDigits(double abs, int decimal, boolean negative) {
+		final String repr = Double.toString(abs);
+		final int dot = repr.indexOf('.');
+		if (dot < 0 || repr.indexOf('E') >= 0 || repr.indexOf('e') >= 0)
+			return null;
+
+		final String intPart = repr.substring(0, dot);
+		final String fracPart = repr.substring(dot + 1);
+		final StringBuilder digits = new StringBuilder(intPart);
+		for (int i = 0; i < decimal; i++)
+			digits.append(i < fracPart.length() ? fracPart.charAt(i) : '0');
+
+		long rounded = Long.parseLong(digits.toString());
+		if (fracPart.length() > decimal && fracPart.charAt(decimal) >= '5')
+			rounded++;
+
+		if (rounded > Integer.MAX_VALUE)
+			return null;
+
+		return buildFixedDecimal((int) rounded, decimal, negative);
+	}
+
+	// Builds "[-]intPart[.fracPart]" from an already-rounded, non-negative int
+	// (x scaled by 10^decimal), trimming useless trailing fractional zeros.
+	//
+	// The digits are written right to left straight into a single char[], so the
+	// native string is created only once (Integer.toString followed by a StringBuilder
+	// would copy the characters twice, which is costly under TeaVM). Trailing zeros are
+	// dropped arithmetically, before writing anything.
+	private static String buildFixedDecimal(int rounded, int decimal, boolean negative) {
+		if (rounded == 0)
+			return "0";
+
+		while (decimal > 0 && rounded % 10 == 0) {
+			rounded /= 10;
+			decimal--;
+		}
+
+		// Worst case: '-' + "0." + 15 fractional digits = 18 chars
+		final char[] buf = new char[20];
+		int pos = buf.length;
+
+		for (int i = 0; i < decimal; i++) {
+			buf[--pos] = (char) ('0' + rounded % 10);
+			rounded /= 10;
+		}
+		if (decimal > 0)
+			buf[--pos] = '.';
+
+		if (rounded == 0)
+			buf[--pos] = '0';
+		else
+			while (rounded > 0) {
+				buf[--pos] = (char) ('0' + rounded % 10);
+				rounded /= 10;
+			}
+
+		if (negative)
+			buf[--pos] = '-';
+
+		return new String(buf, pos, buf.length - pos);
+	}
+
+	// Removes useless trailing zeros (and the dot if it becomes orphan)
+	public static String trimZeros(String s) {
+		final int dot = s.indexOf('.');
+		if (dot >= 0) {
+			int end = s.length() - 1;
+			while (end > dot && s.charAt(end) == '0')
+				end--;
+
+			if (end == dot)
+				end--;
+
+			s = s.substring(0, end + 1);
+		}
+		// A negative value that rounds down to zero (e.g. "-0.001" formatted with
+		// 2 decimals) must not surface as the confusing "-0".
+		if (s.equals("-0"))
+			return "0";
+
+		return s;
+	}
+
+	/**
+	 * The blanks {@link #trin(String)} removes: every control character, the space, and the
+	 * non-breaking space U+00A0. The last one is there because {@code %s} in a command pattern
+	 * accepts it too, and because it usually comes from a copy-paste rather than from any wish to
+	 * keep it: treating it as a blank here is what lets a line starting with it be read like any
+	 * other.
+	 */
+	public static boolean isTrimmable(char c) {
+		return c <= ' ' || c == '\u00A0';
+	}
+
+	public static String trin(String arg) {
+		final int len = arg.length();
+		if (len == 0)
+			return "";
+
+		int start = 0;
+		int end = len - 1;
+
+		while (start <= end) {
+			final char cStart = arg.charAt(start);
+			if (isTrimmable(cStart)) {
+				start++;
+				continue;
+			}
+
+			final char cEnd = arg.charAt(end);
+			if (isTrimmable(cEnd)) {
+				end--;
+				continue;
+			}
+			break;
+		}
+
+		if (start == 0 && end == len - 1)
+			return arg;
+
+		if (start > end)
+			return "";
+
+		return arg.substring(start, end + 1);
+	}
+
+	public static CharSequence trim2(CharSequence s) {
+	    final int len = s.length();
+	    if (len == 0)
+	        return "";
+
+	    int start = 0;
+	    int end = len - 1;
+
+	    while (start <= end) {
+	        final char cStart = s.charAt(start);
+	        if (isTrimmable(cStart)) {
+	            start++;
+	            continue;
+	        }
+
+	        final char cEnd = s.charAt(end);
+	        if (isTrimmable(cEnd)) {
+	            end--;
+	            continue;
+	        }
+	        break;
+	    }
+
+	    if (start > end)
+	        return "";
+
+	    if (start == 0 && end == len - 1)
+	        return s;
+	    
+
+	    return s.subSequence(start, end + 1);
+	}
+
+	private static boolean isSpaceOrTabOrNull(char c) {
+		return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\0';
+	}
+
+	public static int getWcWidth(Display stringsToDisplay) {
+		int result = 1;
+		for (CharSequence s : stringsToDisplay) {
+			if (s == null)
+				continue;
+
+			final int length = Wcwidth.length(s);
+			if (result < length)
+				result = length;
+
+		}
+		return result;
+	}
+
+	// http://docs.oracle.com/javase/tutorial/i18n/format/dateFormat.html
+}

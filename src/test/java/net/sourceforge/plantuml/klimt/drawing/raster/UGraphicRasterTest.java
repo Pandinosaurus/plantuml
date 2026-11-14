@@ -1,0 +1,233 @@
+/* ========================================================================
+ * PlantUML : a free UML diagram generator
+ * ========================================================================
+ *
+ * (C) Copyright 2009-2025, Arnaud Roques
+ *
+ * Project Info:  https://plantuml.com
+ *
+ * If you like this project or if you find it useful, you can support us at:
+ *
+ * https://plantuml.com/patreon (only 1$ per month!)
+ * https://plantuml.com/paypal
+ *
+ * This file is part of PlantUML.
+ *
+ * PlantUML is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * PlantUML distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+ * License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ * USA.
+ *
+ *
+ * Original Author:  Arnaud Roques
+ *
+ */
+package net.sourceforge.plantuml.klimt.drawing.raster;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.CRC32;
+import java.util.zip.Inflater;
+
+import javax.imageio.ImageIO;
+
+import org.junit.jupiter.api.Test;
+
+import net.sourceforge.plantuml.FileFormat;
+import net.sourceforge.plantuml.FileFormatOption;
+import net.sourceforge.plantuml.SourceStringReader;
+import net.sourceforge.plantuml.UgDiagram;
+
+/**
+ * The PNG of UGraphicRaster, drawn with Java2D (Java2DRasterCanvas), must be
+ * the PNG of -tpng (UGraphicG2d) pixel for pixel: the drivers draw the same
+ * shapes with the same paints. The TeaVM C build runs the same drivers on a
+ * native canvas.
+ */
+class UGraphicRasterTest {
+
+	private static final String MINDMAP = "@startmindmap\n" //
+			+ "title Mon titre\n" //
+			+ "caption une légende\n" //
+			+ "header en-tête\n" //
+			+ "footer pied\n" //
+			+ "<style>\n" //
+			+ "mindmapDiagram {\n" //
+			+ "  node { BackgroundColor lightGreen }\n" //
+			+ "  :depth(1) { BackGroundColor white }\n" //
+			+ "}\n" //
+			+ "</style>\n" //
+			+ "* Debian\n" //
+			+ "** Ubuntu\n" //
+			+ "*** Linux Mint\n" //
+			+ "*** Kubuntu **bold** //italic// __underlined__ --striked--\n" //
+			+ "** LMDE\n" //
+			+ "** Raspbian with a very long name\n" //
+			+ "-- Left side\n" //
+			+ "-- Another … — •\n" //
+			+ "@endmindmap\n";
+
+	private static final String SHAPES = "@startmindmap\n" //
+			+ "*[#Orange] Colors\n" //
+			+ "**[#lightgreen] Green\n" //
+			+ "**[#FFBBCC/AAFF00] Gradient\n" //
+			+ "*_ Boxless\n" //
+			+ "**:Multi\n<b>line</b> <i>text</i>\n<code>\ncode\n</code>;\n" //
+			+ "@endmindmap\n";
+
+	@Test
+	void testMindMapIsTheSameAsTpng() throws Exception {
+		assertSamePixels(MINDMAP);
+	}
+
+	@Test
+	void testColorsAndGradientsAreTheSameAsTpng() throws Exception {
+		assertSamePixels(SHAPES);
+	}
+
+	@Test
+	void testEmbeddedImagesAreTheSameAsTpng() throws Exception {
+		final String data = "<img:data:image/png;base64," + embeddedPng();
+		final String source = "@startuml\n" //
+				+ "rectangle \"" + data + ">\\nsame size\" as A\n" //
+				+ "rectangle \"" + data + "{scale=2.5}>\\ntwice and a half\" as B\n" //
+				+ "A -> B\n" //
+				+ "@enduml\n";
+		assertSamePixels(source);
+		// Not blank: the image has a red pixel (a diagram without it has none)
+		final BufferedImage actual = ImageIO.read(new ByteArrayInputStream(exportRaster(source)));
+		boolean red = false;
+		for (int y = 0; y < actual.getHeight(); y++)
+			for (int x = 0; x < actual.getWidth(); x++)
+				if ((actual.getRGB(x, y) & 0xFFFFFF) == 0xFF0000)
+					red = true;
+		assertTrue(red, "the embedded image is not drawn");
+	}
+
+	@Test
+	void testSpritesAreTheSameAsTpng() throws Exception {
+		final String source = "@startuml\n" //
+				+ "sprite $icon [8x8/16] {\n" //
+				+ "0123456789ABCDEF\n" //
+				+ "FEDCBA9876543210\n" //
+				+ "0000FFFF0000FFFF\n" //
+				+ "FFFF0000FFFF0000\n" //
+				+ "0123456789ABCDEF\n" //
+				+ "FEDCBA9876543210\n" //
+				+ "0000FFFF0000FFFF\n" //
+				+ "FFFF0000FFFF0000\n" //
+				+ "}\n" //
+				+ "rectangle \"<$icon,scale=2>\\nsprite\" as A #lightyellow\n" //
+				+ "rectangle \"<$icon,color=red>\\nred sprite\" as B\n" //
+				+ "A -> B\n" //
+				+ "@enduml\n";
+		assertSamePixels(source);
+	}
+
+	@Test
+	void testChunks() throws Exception {
+		final byte[] png = exportRaster(MINDMAP);
+		boolean copyleft = false;
+		String source = null;
+		int pos = 8;
+		while (pos < png.length) {
+			final int length = readInt(png, pos);
+			final String type = new String(png, pos + 4, 4, StandardCharsets.ISO_8859_1);
+			final CRC32 crc = new CRC32();
+			crc.update(png, pos + 4, 4 + length);
+			assertEquals((int) crc.getValue(), readInt(png, pos + 8 + length), "CRC of " + type);
+			if (type.equals("tEXt"))
+				copyleft = new String(png, pos + 8, length, StandardCharsets.ISO_8859_1)
+						.equals("copyleft\0Generated by https://plantuml.com");
+			if (type.equals("iTXt")) {
+				final String header = "plantuml\0\1\0\0\0";
+				assertEquals(header, new String(png, pos + 8, header.length(), StandardCharsets.ISO_8859_1));
+				source = inflate(png, pos + 8 + header.length(), length - header.length());
+			}
+			pos += 12 + length;
+		}
+		assertTrue(copyleft);
+		assertTrue(source != null && source.contains("Raspbian with a very long name"), source);
+	}
+
+	private static void assertSamePixels(String source) throws Exception {
+		final BufferedImage expected = ImageIO.read(new ByteArrayInputStream(exportTpng(source)));
+		final BufferedImage actual = ImageIO.read(new ByteArrayInputStream(exportRaster(source)));
+		assertEquals(expected.getWidth(), actual.getWidth(), "width");
+		assertEquals(expected.getHeight(), actual.getHeight(), "height");
+		int differences = 0;
+		String first = null;
+		for (int y = 0; y < expected.getHeight(); y++)
+			for (int x = 0; x < expected.getWidth(); x++)
+				if (expected.getRGB(x, y) != actual.getRGB(x, y)) {
+					differences++;
+					if (first == null)
+						first = String.format("(%d, %d): %08x instead of %08x", x, y, actual.getRGB(x, y),
+								expected.getRGB(x, y));
+				}
+		assertEquals(0, differences, differences + " pixels differ, first " + first);
+	}
+
+	/**
+	 * A small PNG with transparency, as base64.
+	 */
+	private static String embeddedPng() throws IOException {
+		final BufferedImage image = new BufferedImage(12, 8, BufferedImage.TYPE_INT_ARGB);
+		for (int y = 0; y < image.getHeight(); y++)
+			for (int x = 0; x < image.getWidth(); x++)
+				image.setRGB(x, y, x < 4 ? 0xFF0000FF : x < 8 ? 0x8000FF00 : 0x00000000);
+		image.setRGB(5, 3, 0xFFFF0000);
+		final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		ImageIO.write(image, "png", baos);
+		return java.util.Base64.getEncoder().encodeToString(baos.toByteArray());
+	}
+
+	private static UgDiagram diagram(String source) {
+		return (UgDiagram) new SourceStringReader(source).getBlocks().get(0).getDiagram();
+	}
+
+	private static byte[] exportTpng(String source) throws IOException {
+		final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		diagram(source).exportDiagram(baos, 0, new FileFormatOption(FileFormat.PNG));
+		return baos.toByteArray();
+	}
+
+	private static byte[] exportRaster(String source) throws Exception {
+		final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		diagram(source).exportPng(baos, Java2DRasterCanvas::new);
+		return baos.toByteArray();
+	}
+
+	private static int readInt(byte[] data, int pos) {
+		return ((data[pos] & 0xFF) << 24) | ((data[pos + 1] & 0xFF) << 16) | ((data[pos + 2] & 0xFF) << 8)
+				| (data[pos + 3] & 0xFF);
+	}
+
+	private static String inflate(byte[] data, int offset, int length) throws Exception {
+		final Inflater inflater = new Inflater();
+		inflater.setInput(data, offset, length);
+		final ByteArrayOutputStream result = new ByteArrayOutputStream();
+		final byte[] buffer = new byte[4096];
+		while (inflater.finished() == false)
+			result.write(buffer, 0, inflater.inflate(buffer));
+		inflater.end();
+		return new String(result.toByteArray(), StandardCharsets.UTF_8);
+	}
+
+}

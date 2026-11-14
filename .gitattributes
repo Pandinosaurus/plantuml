@@ -1,0 +1,19 @@
+*.java text=auto
+
+# Vega non-regression references and the reports the tests rewrite are compared
+# and diffed byte for byte: always LF, whatever core.autocrlf says (on Windows it
+# would check them out as CRLF, and git would warn every time a test rewrites them).
+src/test/resources/vega/** text eol=lf
+# ... except the data file of puml/read_newlines, whose point is its CR and CRLF
+src/test/resources/vega/python/puml/read_crlf.txt -text
+
+# Files shipped next to plantuml.js that are not hand-written (issue #2870):
+# collapsed in GitHub diffs and left out of the language statistics.
+src/main/teavm/generated/** linguist-generated=true
+src/main/teavm/stdlib/** linguist-generated=true
+src/main/teavm/vendor/** linguist-vendored=true
+
+# Native sources of the TeaVM C build: third-party code and binary fonts
+src/teavm-c/native/plutovg/** linguist-vendored=true
+src/teavm-c/native/miniz/** linguist-vendored=true
+*.ttf binary

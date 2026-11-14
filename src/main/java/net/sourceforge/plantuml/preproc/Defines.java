@@ -1,0 +1,182 @@
+/* ========================================================================
+ * PlantUML : a free UML diagram generator
+ * ========================================================================
+ *
+ * (C) Copyright 2009-2024, Arnaud Roques
+ *
+ * Project Info:  https://plantuml.com
+ * 
+ * If you like this project or if you find it useful, you can support us at:
+ * 
+ * https://plantuml.com/patreon (only 1$ per month!)
+ * https://plantuml.com/paypal
+ * 
+ * This file is part of PlantUML.
+ *
+ * PlantUML is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * PlantUML distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+ * License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ * USA.
+ *
+ *
+ * Original Author:  Arnaud Roques
+ * 
+ *
+ */
+package net.sourceforge.plantuml.preproc;
+
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
+
+import net.sourceforge.plantuml.api.ApiWarning;
+import net.sourceforge.plantuml.security.SFile;
+import net.sourceforge.plantuml.security.SecurityProfile;
+import net.sourceforge.plantuml.security.SecurityUtils;
+import net.sourceforge.plantuml.text.StringLocated;
+import net.sourceforge.plantuml.tim.EaterException;
+import net.sourceforge.plantuml.tim.TMemory;
+import net.sourceforge.plantuml.tim.TVariableScope;
+import net.sourceforge.plantuml.tim.expression.TValue;
+import net.sourceforge.plantuml.version.Version;
+
+public class Defines implements Truth {
+
+	/**
+	 * Name of the diagram file in the deterministic (vega) tests: they feed
+	 * PlantUML with a text, and the C build with a file whose name must not change
+	 * the result.
+	 */
+	public static final String VEGA_FILENAME = "fakefilename";
+
+	private final Environment environment = new Environment();
+	private final Map<String, TValue> values = new LinkedHashMap<String, TValue>();
+
+	@Deprecated
+	@ApiWarning(willBeRemoved = "in next major release")
+	public Defines() {
+		environment.put("PLANTUML_VERSION", "" + Version.versionString());
+	}
+
+	@Override
+	public String toString() {
+		return values.keySet().toString() + " " + environment;
+	}
+
+	public static Defines createEmpty() {
+		return new Defines();
+	}
+
+	public void copyTo(TMemory memory, StringLocated location) throws EaterException {
+		for (Entry<String, TValue> ent : values.entrySet())
+			memory.putVariable(ent.getKey(), ent.getValue(), TVariableScope.GLOBAL, location);
+
+	}
+
+	/**
+	 * The defined variables (the command line ones, <code>-Dname=value</code>) as strings,
+	 * in the order they were defined: <code>puml.args</code> of Python.
+	 */
+	public Map<String, String> asStrings() {
+		final Map<String, String> result = new LinkedHashMap<String, String>();
+		for (Entry<String, TValue> ent : values.entrySet())
+			result.put(ent.getKey(), ent.getValue().toString());
+		return result;
+	}
+
+	public void overrideFilename(String filename) {
+		if (filename != null) {
+			environment.put("filename", filename);
+			environment.put("filenameNoExtension", nameNoExtension(filename));
+		}
+	}
+
+	public void overrideDirPath(String fileDir) {
+		if (fileDir != null)
+			environment.put("dirpath", fileDir.replace('\\', '/'));
+	}
+
+	private void importFrom(Defines other) {
+		this.environment.putAll(other.environment);
+		this.values.putAll(other.values);
+		// magic = null;
+	}
+
+	public Defines cloneMe() {
+		final Defines result = new Defines();
+		result.importFrom(this);
+		return result;
+	}
+
+	public static Defines createWithFileName(SFile file) {
+		Objects.requireNonNull(file);
+		final Defines result = createEmpty();
+		result.overrideFilename(file.getName());
+		result.environment.put("filedate", new Date(file.lastModified()).toString());
+		if (SecurityUtils.getSecurityProfile() == SecurityProfile.INSECURE)
+			result.environment.put("dirpath",
+					file.getAbsoluteFile().getParentFile().getAbsolutePath().replace('\\', '/'));
+
+		return result;
+	}
+
+	public static Defines createWithFileName(java.io.File file) {
+		Objects.requireNonNull(file);
+		final Defines result = createEmpty();
+		result.overrideFilename(file.getName());
+		result.environment.put("filedate", new Date(file.lastModified()).toString());
+		if (SecurityUtils.getSecurityProfile() == SecurityProfile.INSECURE)
+			result.environment.put("dirpath",
+					file.getAbsoluteFile().getParentFile().getAbsolutePath().replace('\\', '/'));
+
+		return result;
+	}
+
+	public String getEnvironmentValue(String key) {
+		return this.environment.get(key);
+	}
+
+	/**
+	 * Returns a snapshot of the environment: later changes of this object are not
+	 * seen by it.
+	 */
+	public Environment getEnvironment() {
+		return this.environment.copy();
+	}
+
+	private static String nameNoExtension(String name) {
+		final int x = name.lastIndexOf('.');
+		if (x == -1)
+			return name;
+
+		return name.substring(0, x);
+	}
+
+	/**
+	 * Defines <code>name</code>; a <code>null</code> value is defined as an empty
+	 * one.
+	 */
+	public void define(String name, String value) {
+		values.put(name, TValue.fromString(value == null ? "" : value));
+	}
+
+	public boolean isTrue(String name) {
+		for (String key : values.keySet())
+			if (key.equals(name) || key.startsWith(name + "("))
+				return true;
+
+		return false;
+	}
+}
